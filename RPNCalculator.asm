@@ -1,113 +1,25 @@
 TITLE RPNCalculator
 INCLUDE Irvine32.inc
-include Windows.inc
 
 .const
      enterNum byte "Enter your equation: ",13,10,0
-
-     AppLoadMsgTitle BYTE "Application Loaded",0
-     AppLoadMsgText  BYTE "This window displays when the WM_CREATE "
-	                 BYTE "message is received",0
-
-     PopupTitle BYTE "Popup Window",0
-     PopupText  BYTE "This window was activated by a "
-	            BYTE "WM_LBUTTONDOWN message",0
-
-     GreetTitle BYTE "Main Window Active",0
-     GreetText  BYTE "This window is shown immediately after "
-	            BYTE "CreateWindow and UpdateWindow are called.",0
-
-     CloseMsg   BYTE "WM_CLOSE message received",0
-
-     ErrorTitle  BYTE "Error",0
-     WindowName  BYTE "ASM Windows App",0
-     className   BYTE "ASMWin",0
+     equals byte " = ",0
 
 .data
-     ; Define the Application's Window class structure.
-     MainWin WNDCLASS <NULL,WinProc,NULL,NULL,NULL,NULL,NULL, \
-	     COLOR_WINDOW,NULL,className>
-
-     msg	      MSGStruct <>
-     winRect   RECT <>
+     count byte 0
 
 .data?
      startPointer DWord ? ;keep track of the beginning of the stack
      spacePointer DWord ? ;keep track of the last space entered for multi-digit numbers
-
-     CommandLine DWORD ?
-     hMainWnd  DWORD ?
-     hInstance DWORD ?
-
-.code
-COMMENT !
-WinMain PROC
-     ; Get a handle to the current process.
-	     INVOKE GetModuleHandle, NULL
-	     mov hInstance, eax
-          ;INVOKE GetCommandLine
-          ;mov CommandLine,eax
-	     mov MainWin.hInstance, eax
-
-     ; Load the program's icon and cursor.
-	     INVOKE LoadIcon, NULL, IDI_APPLICATION
-	     mov MainWin.hIcon, eax
-	     INVOKE LoadCursor, NULL, IDC_ARROW
-	     mov MainWin.hCursor, eax
-
-     ; Register the window class.
-	     INVOKE RegisterClass, ADDR MainWin
-	     .IF eax == 0
-	       call ErrorHandler
-	       jmp Exit_Program
-	     .ENDIF
-
-     ; Create the application's main window.
-     ; Returns a handle to the main window in EAX.
-	     INVOKE CreateWindowEx, 0, ADDR className,
-	       ADDR WindowName,MAIN_WINDOW_STYLE,
-	       CW_USEDEFAULT,CW_USEDEFAULT,CW_USEDEFAULT,
-	       CW_USEDEFAULT,NULL,NULL,hInstance,NULL
-	     mov hMainWnd,eax
-
-     ; If CreateWindowEx failed, display a message & exit.
-	     .IF eax == 0
-	       call ErrorHandler
-	       jmp  Exit_Program
-	     .ENDIF
-
-     ; Show and draw the window.
-	     INVOKE ShowWindow, hMainWnd, SW_SHOW
-	     INVOKE UpdateWindow, hMainWnd
-
-     ;Begin the program's message-handling loop.
-     Message_Loop:
-	     ; Get next message from the queue.
-	     INVOKE GetMessage, ADDR msg, NULL,NULL,NULL
-
-	     ; Quit if no more messages.
-	     .IF eax == 0
-	       jmp Exit_Program
-	     .ENDIF
-
-	     ; Relay the message to the program's WinProc.
-	     INVOKE DispatchMessage, ADDR msg
-         jmp Message_Loop
-     
-     Exit_Program:
-          EXIT
-WinMain ENDP
-!
-
-Main PROC
-.data
-     equals byte " = ",0
-     count byte 0
-
-.data?
      num SDWord ? ;temp variable for calculations
-
+     save DWORD ?
+     saveEax SDWORD ?
+     saveEbx SDWORD ?
+     saveEcx SDWORD ?
+     saveEdx SDWORD ?
+     
 .code
+Main PROC
      MOV edx, offset enterNum
      CALL WriteString
 
@@ -118,15 +30,16 @@ Main PROC
           MOV num, 0
 
           CALL ReadChar
-          MOV ah, 0
 
-          CMP al,13
-          JE output
+          CMP al,13 ;Enter key pressed
+          JE enterKey
+
+          ;CMP al, 8 ;Backspace pressed
 
           CALL writeChar
 
-          ;CMP al,32
-          ;JE combine
+          CMP al,32 ;Space bar pressed
+          JE spaceBar
 
           CMP al,'+'
           JE plus
@@ -134,56 +47,119 @@ Main PROC
           CMP al,'-'
           JE minus
 
+          MOV ah, 0
           SUB al,30h
           PUSH eax
-
-          JMP getEquation
+     JMP getEquation
      
-     COMMENT !
-     combine:
-          POP ebx
-          shl eax, 1 
-          mov al, bl
-          add count, 1
-          CMP esp, spacePointer
-          JNE combine
-
-          PUSH eax
-          MOV spacePointer, esp
-          JMP getEquation
-          !
+     spaceBar:
+          CALL combineNum
+     JMP getEquation
 
      plus:
           CALL startCalc
           ADD eax, num
           PUSH eax
-          JMP getEquation
+     JMP getEquation
 
      minus:
           CALL startCalc
           SUB eax, num
           PUSH eax
-          JMP getEquation
+     JMP getEquation
 
-     output:
+     enterKey:
           MOV edx, offset equals
           CALL WriteString
 
           POP eax
-          CALL writeInt
-          CMP esp, startPointer
-          JE done
+          CALL ConvertDecToHex
+
+          output:
+               POP eax
+               add eax, 30h
+               CALL writeChar
+               CMP esp, startPointer
+               JE done
           JMP output
+     JMP enterKey
 
      done:
-          ret
+          CALL CRLF
+          EXIT
 Main ENDP
+
+;------------------------------------
+CombineNum PROC
+;Combines multiple single digit numbers into a multi-digit number
+;Recieves: stack, spacepointer
+;Returns: stack
+;------------------------------------
+     POP edx ;save address
+
+     mov eax, spacePointer
+     sub eax, esp
+     CMP eax, 4
+     JE skip
+
+     mov eax, 0
+     mov ecx, -1
+
+     popNum:
+          POP ebx
+          ROR eax, 4
+          MOV al, bl
+          INC ecx
+     CMP esp, spacePointer
+     JNE popNum
+
+     format:
+          ROL eax, 4
+     LOOP format
+
+     PUSH eax
+     MOV spacePointer, esp
+          
+     skip:
+     PUSH edx ;return address
+     RET
+CombineNum ENDP
+
+;------------------------------------
+ConvertDecToHex PROC
+;Converts a decimal to hexidecimal
+;Recieves EAX
+;Returns: EAX
+;------------------------------------
+     POP save ;save address
+
+     CDQ
+     MOV ebx, 10
+     ;mov spacepointer, esp
+     ;PUSH 1
+     ;PUSH 6
+     ;CALL saveAddresses
+     ;CALL combineNum
+     ;CALL restoreAddresses
+     ;POP ebx
+     divide:
+          MOV edx, 0
+          IDIV ebx
+          CMP edx, 0
+          JE convertEnd
+          PUSH edx
+          JMP divide
+
+     convertEnd:
+          PUSH save ;return address
+          RET
+ConvertDecToHex ENDP
 
 ;------------------------------------
 startCalc PROC
 ;Pops two numbers off the stack
-;Recieves: stack
-;Returns: eax
+;Recieves: Stack
+;Returns: EAX
 ;------------------------------------
      POP ecx ;save address of where startCalc was called
 
@@ -195,56 +171,24 @@ startCalc PROC
      RET
 startCalc ENDP
 
-;---------------------------------------------------
-ErrorHandler PROC
-; Display the appropriate system error message.
-;---------------------------------------------------
-.data
-pErrorMsg  DWORD ?		; ptr to error message
-messageID  DWORD ?
-.code
-	INVOKE GetLastError	; Returns message ID in EAX
-	mov messageID,eax
+;------------------------------------
+saveAddresses PROC
+;------------------------------------
+     MOV saveEax, eax
+     MOV saveEbx, ebx
+     MOV saveEcx, ecx
+     MOV saveEdx, edx
+     RET
+saveAddresses ENDP
 
-	; Get the corresponding message string.
-	INVOKE FormatMessage, FORMAT_MESSAGE_ALLOCATE_BUFFER + \
-	  FORMAT_MESSAGE_FROM_SYSTEM,NULL,messageID,NULL,
-	  ADDR pErrorMsg,NULL,NULL
-
-	; Display the error message.
-	INVOKE MessageBox,NULL, pErrorMsg, ADDR ErrorTitle,
-	  MB_ICONERROR+MB_OK
-
-	; Free the error message string.
-	INVOKE LocalFree, pErrorMsg
-	ret
-ErrorHandler ENDP
-
-;-----------------------------------------------------
-WinProc PROC,
-	hWnd:DWORD, localMsg:DWORD, wParam:DWORD, lParam:DWORD
-; The application's message handler, which handles
-; application-specific messages. All other messages
-; are forwarded to the default Windows message
-; handler.
-;-----------------------------------------------------
-	mov eax, localMsg
-
-	.IF eax == WM_CREATE		; create window?
-	  ;INVOKE MessageBox, hWnd, ADDR AppLoadMsgText,
-	    ;ADDR AppLoadMsgTitle, MB_OK
-	  ;jmp WinProcExit
-	.ELSEIF eax == WM_CLOSE		; close window?
-	  INVOKE PostQuitMessage,0
-	  jmp WinProcExit
-	.ELSE		; other message?
-	  INVOKE DefWindowProc, hWnd, localMsg, wParam, lParam
-	  jmp WinProcExit
-	.ENDIF
-
-WinProcExit:
-	ret
-WinProc ENDP
+;------------------------------------
+restoreAddresses PROC
+;------------------------------------
+     MOV eax, saveEax
+     MOV ebx, saveEbx
+     MOV ecx, saveEcx
+     MOV edx, saveEdx
+     RET
+restoreAddresses ENDP
 
 END Main
-;END WinMain
