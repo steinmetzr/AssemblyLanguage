@@ -2,7 +2,11 @@ TITLE RPNCalculator
 INCLUDE Irvine32.inc
 
 .const
-     enterNum byte "Enter your equation: ",13,10,0
+     enterNum byte "Please enter your equation.",13,10,
+     "Rules:",13,10,
+     "- Insert spaces after each whole number",13,10,
+     "- Don't insert spaces after arithmetic signs",13,10,
+     "- Press enter when you are done",13,10,0
      equals byte " = ",0
 
 .data
@@ -33,8 +37,6 @@ Main PROC
 
           CMP al,13 ;Enter key pressed
           JE enterKey
-
-          ;CMP al, 8 ;Backspace pressed
 
           CALL writeChar
 
@@ -87,7 +89,7 @@ Main PROC
      done:
           CALL CRLF
           EXIT
-Main ENDP
+Main ENDP     
 
 ;------------------------------------
 CombineNum PROC
@@ -133,21 +135,14 @@ ConvertDecToHex PROC
 ;------------------------------------
      POP save ;save address
 
-     CDQ
-     MOV ebx, 10
-     ;mov spacepointer, esp
-     ;PUSH 1
-     ;PUSH 6
-     ;CALL saveAddresses
-     ;CALL combineNum
-     ;CALL restoreAddresses
-     ;POP ebx
+     mov spacepointer, esp
+     mov ebx, 16
      divide:
-          MOV edx, 0
+          CDQ
           IDIV ebx
-          CMP edx, 0
-          JE convertEnd
           PUSH edx
+          CMP eax, 0
+          JE convertEnd
           JMP divide
 
      convertEnd:
